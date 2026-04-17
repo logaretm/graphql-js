@@ -45,6 +45,8 @@ import {
 } from '../type/definition.js';
 import type { GraphQLSchema } from '../type/schema.js';
 
+import { maybeTraceMixed } from '../diagnostics.js';
+
 import { AbortedGraphQLExecutionError } from './AbortedGraphQLExecutionError.js';
 import { withCancellation } from './cancellablePromise.js';
 import type {
@@ -605,7 +607,11 @@ export class Executor<
       // The resolve function's optional third argument is a context value that
       // is provided to every resolve function within an execution. It is commonly
       // used to represent an authenticated user, or request-specific caches.
-      const result = resolveFn(source, args, contextValue, info);
+      const result = maybeTraceMixed(
+        'resolve',
+        () => buildResolveCtx(info, args, fieldDef.resolve === undefined),
+        () => resolveFn(source, args, contextValue, info),
+      );
 
       if (isPromiseLike(result)) {
         return this.completePromisedValue(
@@ -1387,4 +1393,30 @@ export class Executor<
 
 function toNodes(fieldDetailsList: FieldDetailsList): ReadonlyArray<FieldNode> {
   return fieldDetailsList.map((fieldDetails) => fieldDetails.node);
+}
+
+/**
+ * Build a graphql:resolve channel context for a single field invocation.
+ *
+ * `fieldPath` is exposed as a lazy getter because serializing the response
+ * path is O(depth) and APMs that depth-filter or skip trivial resolvers
+ * often never read it. `args` is passed through by reference.
+ */
+function buildResolveCtx(
+  info: GraphQLResolveInfo,
+  args: { readonly [argument: string]: unknown },
+  isTrivialResolver: boolean,
+): object {
+  let cachedFieldPath: string | undefined;
+  return {
+    fieldName: info.fieldName,
+    parentType: info.parentType.name,
+    fieldType: String(info.returnType),
+    args,
+    isTrivialResolver,
+    get fieldPath() {
+      cachedFieldPath ??= pathToArray(info.path).join('.');
+      return cachedFieldPath;
+    },
+  };
 }
