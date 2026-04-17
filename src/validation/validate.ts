@@ -12,6 +12,8 @@ import { assertValidSchema } from '../type/validate.js';
 
 import { TypeInfo, visitWithTypeInfo } from '../utilities/TypeInfo.js';
 
+import { maybeTraceSync } from '../diagnostics.js';
+
 import { specifiedRules, specifiedSDLRules } from './specifiedRules.js';
 import type { SDLValidationRule, ValidationRule } from './ValidationContext.js';
 import {
@@ -61,46 +63,52 @@ export function validate(
   rules: ReadonlyArray<ValidationRule> = specifiedRules,
   options?: ValidationOptions,
 ): ReadonlyArray<GraphQLError> {
-  const maxErrors = options?.maxErrors ?? 100;
-  const hideSuggestions = options?.hideSuggestions ?? false;
+  return maybeTraceSync(
+    'validate',
+    () => ({ schema, document: documentAST }),
+    () => {
+      const maxErrors = options?.maxErrors ?? 100;
+      const hideSuggestions = options?.hideSuggestions ?? false;
 
-  // If the schema used for validation is invalid, throw an error.
-  assertValidSchema(schema);
+      // If the schema used for validation is invalid, throw an error.
+      assertValidSchema(schema);
 
-  const errors: Array<GraphQLError> = [];
-  const typeInfo = new TypeInfo(schema);
-  const context = new ValidationContext(
-    schema,
-    documentAST,
-    typeInfo,
-    (error) => {
-      if (errors.length >= maxErrors) {
-        throw tooManyValidationErrorsError;
+      const errors: Array<GraphQLError> = [];
+      const typeInfo = new TypeInfo(schema);
+      const context = new ValidationContext(
+        schema,
+        documentAST,
+        typeInfo,
+        (error) => {
+          if (errors.length >= maxErrors) {
+            throw tooManyValidationErrorsError;
+          }
+          errors.push(error);
+        },
+        hideSuggestions,
+      );
+
+      // This uses a specialized visitor which runs multiple visitors in
+      // parallel, while maintaining the visitor skip and break API.
+      const visitor = visitInParallel(rules.map((rule) => rule(context)));
+
+      // Visit the whole document with each instance of all provided rules.
+      try {
+        visit(
+          documentAST,
+          visitWithTypeInfo(typeInfo, visitor),
+          QueryDocumentKeysToValidate,
+        );
+      } catch (e: unknown) {
+        if (e === tooManyValidationErrorsError) {
+          errors.push(tooManyValidationErrorsError);
+        } else {
+          throw e;
+        }
       }
-      errors.push(error);
+      return errors;
     },
-    hideSuggestions,
   );
-
-  // This uses a specialized visitor which runs multiple visitors in parallel,
-  // while maintaining the visitor skip and break API.
-  const visitor = visitInParallel(rules.map((rule) => rule(context)));
-
-  // Visit the whole document with each instance of all provided rules.
-  try {
-    visit(
-      documentAST,
-      visitWithTypeInfo(typeInfo, visitor),
-      QueryDocumentKeysToValidate,
-    );
-  } catch (e: unknown) {
-    if (e === tooManyValidationErrorsError) {
-      errors.push(tooManyValidationErrorsError);
-    } else {
-      throw e;
-    }
-  }
-  return errors;
 }
 
 /**
