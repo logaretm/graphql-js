@@ -3,6 +3,8 @@ import type { Maybe } from '../jsutils/Maybe.js';
 import type { GraphQLError } from '../error/GraphQLError.js';
 import { syntaxError } from '../error/syntaxError.js';
 
+import { maybeTraceSync } from '../diagnostics.js';
+
 import type {
   ArgumentCoordinateNode,
   ArgumentNode,
@@ -132,13 +134,19 @@ export function parse(
   source: string | Source,
   options?: ParseOptions,
 ): DocumentNode {
-  const parser = new Parser(source, options);
-  const document = parser.parseDocument();
-  Object.defineProperty(document, 'tokenCount', {
-    enumerable: false,
-    value: parser.tokenCount,
-  });
-  return document;
+  return maybeTraceSync(
+    'parse',
+    () => ({ source }),
+    () => {
+      const parser = new Parser(source, options);
+      const document = parser.parseDocument();
+      Object.defineProperty(document, 'tokenCount', {
+        enumerable: false,
+        value: parser.tokenCount,
+      });
+      return document;
+    },
+  );
 }
 
 /**
