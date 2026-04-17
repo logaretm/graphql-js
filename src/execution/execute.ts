@@ -33,6 +33,10 @@ import type {
 import { assertValidSchema } from '../type/index.js';
 import type { GraphQLSchema } from '../type/schema.js';
 
+import { getOperationAST } from '../utilities/getOperationAST.js';
+
+import { maybeTraceMixed } from '../diagnostics.js';
+
 import { cancellablePromise } from './cancellablePromise.js';
 import type { FieldDetailsList, FragmentDetails } from './collectFields.js';
 import { collectFields } from './collectFields.js';
@@ -55,6 +59,53 @@ const UNEXPECTED_EXPERIMENTAL_DIRECTIVES =
   'The provided schema unexpectedly contains experimental directives (@defer or @stream). These directives may only be utilized if experimental execution features are explicitly enabled.';
 
 /**
+ * Build a graphql:execute channel context from raw ExecutionArgs. Defers
+ * resolution of the operation AST to a lazy getter so the cost of walking
+ * the document is only paid if a subscriber reads it.
+ */
+function buildExecuteCtxFromArgs(args: ExecutionArgs): () => object {
+  return () => {
+    let operation: OperationDefinitionNode | null | undefined;
+    const resolveOperation = (): OperationDefinitionNode | null | undefined => {
+      if (operation === undefined) {
+        operation = getOperationAST(args.document, args.operationName);
+      }
+      return operation;
+    };
+    return {
+      document: args.document,
+      schema: args.schema,
+      variableValues: args.variableValues,
+      get operationName() {
+        return args.operationName ?? resolveOperation()?.name?.value;
+      },
+      get operationType() {
+        return resolveOperation()?.operation;
+      },
+    };
+  };
+}
+
+/**
+ * Build a graphql:execute channel context from ValidatedExecutionArgs.
+ * Used by executeSubscriptionEvent, where the operation has already been
+ * resolved during argument validation. The original document is not
+ * available at this point, only the resolved operation; subscribers that
+ * need the document should read it from the graphql:subscribe context.
+ */
+function buildExecuteCtxFromValidatedArgs(
+  args: ValidatedExecutionArgs,
+): () => object {
+  return () => ({
+    operation: args.operation,
+    schema: args.schema,
+    variableValues: args.variableValues,
+    operationName: args.operation.name?.value,
+    operationType: args.operation.operation,
+  });
+}
+
+/**
  * Implements the "Executing requests" section of the GraphQL specification.
  *
  * Returns either a synchronous ExecutionResult (if all encountered resolvers
@@ -71,18 +122,23 @@ const UNEXPECTED_EXPERIMENTAL_DIRECTIVES =
  * delivery.
  */
 export function execute(args: ExecutionArgs): PromiseOrValue<ExecutionResult> {
-  if (args.schema.getDirective('defer') || args.schema.getDirective('stream')) {
-    throw new Error(UNEXPECTED_EXPERIMENTAL_DIRECTIVES);
-  }
+  return maybeTraceMixed('execute', buildExecuteCtxFromArgs(args), () => {
+    if (
+      args.schema.getDirective('defer') ||
+      args.schema.getDirective('stream')
+    ) {
+      throw new Error(UNEXPECTED_EXPERIMENTAL_DIRECTIVES);
+    }
 
-  const validatedExecutionArgs = validateExecutionArgs(args);
+    const validatedExecutionArgs = validateExecutionArgs(args);
 
-  // Return early errors if execution context failed.
-  if (!('schema' in validatedExecutionArgs)) {
-    return { errors: validatedExecutionArgs };
-  }
+    // Return early errors if execution context failed.
+    if (!('schema' in validatedExecutionArgs)) {
+      return { errors: validatedExecutionArgs };
+    }
 
-  return executeRootSelectionSet(validatedExecutionArgs);
+    return executeRootSelectionSet(validatedExecutionArgs);
+  });
 }
 
 /**
@@ -100,31 +156,35 @@ export function execute(args: ExecutionArgs): PromiseOrValue<ExecutionResult> {
 export function experimentalExecuteIncrementally(
   args: ExecutionArgs,
 ): PromiseOrValue<ExecutionResult | ExperimentalIncrementalExecutionResults> {
-  // If a valid execution context cannot be created due to incorrect arguments,
-  // a "Response" with only errors is returned.
-  const validatedExecutionArgs = validateExecutionArgs(args);
+  return maybeTraceMixed('execute', buildExecuteCtxFromArgs(args), () => {
+    // If a valid execution context cannot be created due to incorrect
+    // arguments, a "Response" with only errors is returned.
+    const validatedExecutionArgs = validateExecutionArgs(args);
 
-  // Return early errors if execution context failed.
-  if (!('schema' in validatedExecutionArgs)) {
-    return { errors: validatedExecutionArgs };
-  }
+    // Return early errors if execution context failed.
+    if (!('schema' in validatedExecutionArgs)) {
+      return { errors: validatedExecutionArgs };
+    }
 
-  return experimentalExecuteRootSelectionSet(validatedExecutionArgs);
+    return experimentalExecuteRootSelectionSet(validatedExecutionArgs);
+  });
 }
 
 export function executeIgnoringIncremental(
   args: ExecutionArgs,
 ): PromiseOrValue<ExecutionResult | ExperimentalIncrementalExecutionResults> {
-  // If a valid execution context cannot be created due to incorrect arguments,
-  // a "Response" with only errors is returned.
-  const validatedExecutionArgs = validateExecutionArgs(args);
+  return maybeTraceMixed('execute', buildExecuteCtxFromArgs(args), () => {
+    // If a valid execution context cannot be created due to incorrect
+    // arguments, a "Response" with only errors is returned.
+    const validatedExecutionArgs = validateExecutionArgs(args);
 
-  // Return early errors if execution context failed.
-  if (!('schema' in validatedExecutionArgs)) {
-    return { errors: validatedExecutionArgs };
-  }
+    // Return early errors if execution context failed.
+    if (!('schema' in validatedExecutionArgs)) {
+      return { errors: validatedExecutionArgs };
+    }
 
-  return executeRootSelectionSetIgnoringIncremental(validatedExecutionArgs);
+    return executeRootSelectionSetIgnoringIncremental(validatedExecutionArgs);
+  });
 }
 
 /**
@@ -183,9 +243,14 @@ export function executeSync(args: ExecutionArgs): ExecutionResult {
 export function executeSubscriptionEvent(
   validatedExecutionArgs: ValidatedSubscriptionArgs,
 ): PromiseOrValue<ExecutionResult> {
-  return new ExecutorThrowingOnIncremental(
-    validatedExecutionArgs,
-  ).executeRootSelectionSet(false);
+  return maybeTraceMixed(
+    'execute',
+    buildExecuteCtxFromValidatedArgs(validatedExecutionArgs),
+    () =>
+      new ExecutorThrowingOnIncremental(
+        validatedExecutionArgs,
+      ).executeRootSelectionSet(false),
+  );
 }
 
 /**
