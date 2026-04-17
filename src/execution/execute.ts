@@ -284,24 +284,26 @@ export function subscribe(
 ): PromiseOrValue<
   AsyncGenerator<ExecutionResult, void, void> | ExecutionResult
 > {
-  // If a valid execution context cannot be created due to incorrect arguments,
-  // a "Response" with only errors is returned.
-  const validatedExecutionArgs = validateSubscriptionArgs(args);
+  return maybeTraceMixed('subscribe', buildExecuteCtxFromArgs(args), () => {
+    // If a valid execution context cannot be created due to incorrect
+    // arguments, a "Response" with only errors is returned.
+    const validatedExecutionArgs = validateSubscriptionArgs(args);
 
-  // Return early errors if execution context failed.
-  if (!('schema' in validatedExecutionArgs)) {
-    return { errors: validatedExecutionArgs };
-  }
+    // Return early errors if execution context failed.
+    if (!('schema' in validatedExecutionArgs)) {
+      return { errors: validatedExecutionArgs };
+    }
 
-  const resultOrStream = createSourceEventStream(validatedExecutionArgs);
+    const resultOrStream = createSourceEventStream(validatedExecutionArgs);
 
-  if (isPromise(resultOrStream)) {
-    return resultOrStream.then((resolvedResultOrStream) =>
-      mapSourceToResponse(validatedExecutionArgs, resolvedResultOrStream),
-    );
-  }
+    if (isPromise(resultOrStream)) {
+      return resultOrStream.then((resolvedResultOrStream) =>
+        mapSourceToResponse(validatedExecutionArgs, resolvedResultOrStream),
+      );
+    }
 
-  return mapSourceToResponse(validatedExecutionArgs, resultOrStream);
+    return mapSourceToResponse(validatedExecutionArgs, resultOrStream);
+  });
 }
 
 /**
