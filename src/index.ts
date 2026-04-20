@@ -34,7 +34,7 @@ export { enableDevMode, isDevModeEnabled } from './devMode.js';
 
 // Register a `node:diagnostics_channel`-compatible module to enable
 // tracing channel emission from parse, validate, execute, subscribe,
-// and resolver lifecycles.
+// and resolver lifecycle events.
 export { enableDiagnosticsChannel } from './diagnostics.js';
 export type {
   MinimalChannel,
