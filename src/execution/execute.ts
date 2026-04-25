@@ -264,19 +264,9 @@ export function executeSync(args: ExecutionArgs): ExecutionResult {
 export function executeSubscriptionEvent(
   validatedExecutionArgs: ValidatedSubscriptionArgs,
 ): PromiseOrValue<ExecutionResult> {
-  if (!executeChannel?.hasSubscribers) {
-    return new ExecutorThrowingOnIncremental(
-      validatedExecutionArgs,
-    ).executeRootSelectionSet(false);
-  }
-  return traceMixed(
-    executeChannel,
-    buildExecuteCtxFromValidatedArgs(validatedExecutionArgs),
-    () =>
-      new ExecutorThrowingOnIncremental(
-        validatedExecutionArgs,
-      ).executeRootSelectionSet(false),
-  );
+  return new ExecutorThrowingOnIncremental(
+    validatedExecutionArgs,
+  ).executeRootSelectionSet(false);
 }
 
 /**
@@ -655,7 +645,14 @@ function mapSourceToResponse(
       ...validatedExecutionArgs,
       rootValue: payload,
     };
-    return validatedExecutionArgs.perEventExecutor(perEventExecutionArgs);
+    if (!executeChannel?.hasSubscribers) {
+      return validatedExecutionArgs.perEventExecutor(perEventExecutionArgs);
+    }
+    return traceMixed(
+      executeChannel,
+      buildExecuteCtxFromValidatedArgs(validatedExecutionArgs),
+      () => validatedExecutionArgs.perEventExecutor(perEventExecutionArgs),
+    );
   }
 
   const externalAbortSignal = validatedExecutionArgs.externalAbortSignal;
