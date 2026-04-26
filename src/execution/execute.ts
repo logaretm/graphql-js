@@ -783,10 +783,25 @@ function buildExecuteCtxFromValidatedArgs(
   return {
     operation: args.operation,
     schema: args.schema,
-    variableValues: args.variableValues,
+    variableValues: getOriginalVariableValues(args),
     operationName: args.operation.name?.value,
     operationType: args.operation.operation,
   };
+}
+
+function getOriginalVariableValues(
+  args: ValidatedExecutionArgs,
+): Maybe<{ readonly [variable: string]: unknown }> {
+  const originalVariableValues: { [variable: string]: unknown } = {};
+  for (const [variableName, source] of Object.entries(
+    args.variableValues.sources,
+  )) {
+    if (Object.hasOwn(source, 'value')) {
+      originalVariableValues[variableName] = source.value;
+    }
+  }
+
+  return originalVariableValues;
 }
 
 /**
