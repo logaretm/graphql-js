@@ -63,6 +63,31 @@ const UNEXPECTED_EXPERIMENTAL_DIRECTIVES =
   'The provided schema unexpectedly contains experimental directives (@defer or @stream). These directives may only be utilized if experimental execution features are explicitly enabled.';
 
 /**
+ * Implements the "Executing requests" section of the GraphQL specification.
+ *
+ * Returns either a synchronous ExecutionResult (if all encountered resolvers
+ * are synchronous), or a Promise of an ExecutionResult that will eventually be
+ * resolved and never rejected.
+ *
+ * If the arguments to this function do not result in a legal execution context,
+ * a GraphQLError will be thrown immediately explaining the invalid input.
+ *
+ * This function does not support incremental delivery (`@defer` and `@stream`).
+ * If an operation which would defer or stream data is executed with this
+ * function, it will throw or return a rejected promise.
+ * Use `experimentalExecuteIncrementally` if you want to support incremental
+ * delivery.
+ */
+export function execute(args: ExecutionArgs): PromiseOrValue<ExecutionResult> {
+  if (!executeChannel?.hasSubscribers) {
+    return executeImpl(args);
+  }
+  return traceMixed(executeChannel, buildExecuteCtxFromArgs(args), () =>
+    executeImpl(args),
+  );
+}
+
+/**
  * Build a graphql:execute channel context from raw ExecutionArgs. Defers
  * resolution of the operation AST to a lazy getter so the cost of walking
  * the document is only paid if a subscriber reads it.
@@ -86,50 +111,6 @@ function buildExecuteCtxFromArgs(args: ExecutionArgs): object {
       return resolveOperation()?.operation;
     },
   };
-}
-
-/**
- * Build a graphql:execute channel context from ValidatedExecutionArgs.
- * Used by executeSubscriptionEvent, where the operation has already been
- * resolved during argument validation. The original document is not
- * available at this point, only the resolved operation; subscribers that
- * need the document should read it from the graphql:subscribe context.
- */
-function buildExecuteCtxFromValidatedArgs(
-  args: ValidatedExecutionArgs,
-): object {
-  return {
-    operation: args.operation,
-    schema: args.schema,
-    variableValues: args.variableValues,
-    operationName: args.operation.name?.value,
-    operationType: args.operation.operation,
-  };
-}
-
-/**
- * Implements the "Executing requests" section of the GraphQL specification.
- *
- * Returns either a synchronous ExecutionResult (if all encountered resolvers
- * are synchronous), or a Promise of an ExecutionResult that will eventually be
- * resolved and never rejected.
- *
- * If the arguments to this function do not result in a legal execution context,
- * a GraphQLError will be thrown immediately explaining the invalid input.
- *
- * This function does not support incremental delivery (`@defer` and `@stream`).
- * If an operation which would defer or stream data is executed with this
- * function, it will throw or return a rejected promise.
- * Use `experimentalExecuteIncrementally` if you want to support incremental
- * delivery.
- */
-export function execute(args: ExecutionArgs): PromiseOrValue<ExecutionResult> {
-  if (!executeChannel?.hasSubscribers) {
-    return executeImpl(args);
-  }
-  return traceMixed(executeChannel, buildExecuteCtxFromArgs(args), () =>
-    executeImpl(args),
-  );
 }
 
 function executeImpl(args: ExecutionArgs): PromiseOrValue<ExecutionResult> {
@@ -787,6 +768,25 @@ function assertEventStream(result: unknown): AsyncIterable<unknown> {
   }
 
   return result;
+}
+
+/**
+ * Build a graphql:execute channel context from ValidatedExecutionArgs.
+ * Used by executeSubscriptionEvent, where the operation has already been
+ * resolved during argument validation. The original document is not
+ * available at this point, only the resolved operation; subscribers that
+ * need the document should read it from the graphql:subscribe context.
+ */
+function buildExecuteCtxFromValidatedArgs(
+  args: ValidatedExecutionArgs,
+): object {
+  return {
+    operation: args.operation,
+    schema: args.schema,
+    variableValues: args.variableValues,
+    operationName: args.operation.name?.value,
+    operationType: args.operation.operation,
+  };
 }
 
 /**
