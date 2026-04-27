@@ -45,7 +45,7 @@ import {
 } from '../type/definition.js';
 import type { GraphQLSchema } from '../type/schema.js';
 
-import { resolveChannel, traceMixed } from '../diagnostics.js';
+import { resolveChannel, shouldTrace, traceMixed } from '../diagnostics.js';
 
 import { AbortedGraphQLExecutionError } from './AbortedGraphQLExecutionError.js';
 import { withCancellation } from './cancellablePromise.js';
@@ -581,7 +581,7 @@ export class Executor<
     const returnType = fieldDef.type;
     let resolveFn = fieldDef.resolve ?? validatedExecutionArgs.fieldResolver;
 
-    if (resolveChannel?.hasSubscribers) {
+    if (shouldTrace(resolveChannel)) {
       const channel = resolveChannel;
       const originalResolveFn = resolveFn;
       resolveFn = (s, args, c, info) =>

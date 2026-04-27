@@ -12,7 +12,7 @@ import { assertValidSchema } from '../type/validate.js';
 
 import { TypeInfo, visitWithTypeInfo } from '../utilities/TypeInfo.js';
 
-import { validateChannel } from '../diagnostics.js';
+import { shouldTrace, validateChannel } from '../diagnostics.js';
 
 import { specifiedRules, specifiedSDLRules } from './specifiedRules.js';
 import type { SDLValidationRule, ValidationRule } from './ValidationContext.js';
@@ -63,7 +63,7 @@ export function validate(
   rules: ReadonlyArray<ValidationRule> = specifiedRules,
   options?: ValidationOptions,
 ): ReadonlyArray<GraphQLError> {
-  return validateChannel?.hasSubscribers
+  return shouldTrace(validateChannel)
     ? validateChannel.traceSync(
         () => validateImpl(schema, documentAST, rules, options),
         { schema, document: documentAST },
