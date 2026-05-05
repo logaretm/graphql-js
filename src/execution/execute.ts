@@ -781,13 +781,37 @@ function assertEventStream(result: unknown): AsyncIterable<unknown> {
 function buildExecuteCtxFromValidatedArgs(
   args: ValidatedExecutionArgs,
 ): object {
+  let originalVariableValues: Maybe<{ readonly [variable: string]: unknown }>;
+  let hasResolvedOriginalVariableValues = false;
+
   return {
     operation: args.operation,
     schema: args.schema,
-    variableValues: args.variableValues.sources,
+    get variableValues() {
+      if (!hasResolvedOriginalVariableValues) {
+        originalVariableValues = getOriginalVariableValues(args);
+        hasResolvedOriginalVariableValues = true;
+      }
+      return originalVariableValues;
+    },
     operationName: args.operation.name?.value,
     operationType: args.operation.operation,
   };
+}
+
+function getOriginalVariableValues(
+  args: ValidatedExecutionArgs,
+): Maybe<{ readonly [variable: string]: unknown }> {
+  const originalVariableValues: { [variable: string]: unknown } = {};
+  for (const [variableName, source] of Object.entries(
+    args.variableValues.sources,
+  )) {
+    if (Object.hasOwn(source, 'value')) {
+      originalVariableValues[variableName] = source.value;
+    }
+  }
+
+  return originalVariableValues;
 }
 
 /**
