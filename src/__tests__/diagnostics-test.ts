@@ -9,19 +9,23 @@ import { invariant } from '../jsutils/invariant.js';
 import type { MinimalTracingChannel } from '../diagnostics.js';
 import {
   executeChannel,
+  executeRootSelectionSetChannel,
   parseChannel,
   resolveChannel,
   shouldTrace,
   subscribeChannel,
+  subscribePerEventExecutorChannel,
   validateChannel,
 } from '../diagnostics.js';
 
 describe('diagnostics', () => {
-  it('auto-registers the five graphql tracing channels', () => {
+  it('auto-registers the graphql tracing channels', () => {
     invariant(parseChannel !== undefined);
     invariant(validateChannel !== undefined);
     invariant(executeChannel !== undefined);
+    invariant(executeRootSelectionSetChannel !== undefined);
     invariant(subscribeChannel !== undefined);
+    invariant(subscribePerEventExecutorChannel !== undefined);
     invariant(resolveChannel !== undefined);
 
     // Node's `tracingChannel(name)` returns a fresh wrapper per call but
@@ -35,8 +39,14 @@ describe('diagnostics', () => {
     expect(executeChannel.start).to.equal(
       dc.channel('tracing:graphql:execute:start'),
     );
+    expect(executeRootSelectionSetChannel.start).to.equal(
+      dc.channel('tracing:graphql:execute:rootSelectionSet:start'),
+    );
     expect(subscribeChannel.start).to.equal(
       dc.channel('tracing:graphql:subscribe:start'),
+    );
+    expect(subscribePerEventExecutorChannel.start).to.equal(
+      dc.channel('tracing:graphql:subscribe:perEventExecutor:start'),
     );
     expect(resolveChannel.start).to.equal(
       dc.channel('tracing:graphql:resolve:start'),

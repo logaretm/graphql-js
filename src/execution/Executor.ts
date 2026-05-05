@@ -45,7 +45,12 @@ import {
 } from '../type/definition.js';
 import type { GraphQLSchema } from '../type/schema.js';
 
-import { resolveChannel, shouldTrace, traceMixed } from '../diagnostics.js';
+import {
+  executeRootSelectionSetChannel,
+  resolveChannel,
+  shouldTrace,
+  traceMixed,
+} from '../diagnostics.js';
 
 import { AbortedGraphQLExecutionError } from './AbortedGraphQLExecutionError.js';
 import { withCancellation } from './cancellablePromise.js';
@@ -62,7 +67,10 @@ import {
 import { collectIteratorPromises } from './collectIteratorPromises.js';
 import type { SharedExecutionContext } from './createSharedExecutionContext.js';
 import { createSharedExecutionContext } from './createSharedExecutionContext.js';
-import { buildResolveInfo } from './execute.js';
+import {
+  buildExecuteCtxFromValidatedArgs,
+  buildResolveInfo,
+} from './execute.js';
 import type { StreamUsage } from './getStreamUsage.js';
 import { getStreamUsage as _getStreamUsage } from './getStreamUsage.js';
 import type { ExecutionHooks } from './hooks.js';
@@ -275,6 +283,19 @@ export class Executor<
   }
 
   executeRootSelectionSet(
+    serially?: boolean,
+  ): PromiseOrValue<ExecutionResult | TAlternativeInitialResponse> {
+    if (!shouldTrace(executeRootSelectionSetChannel)) {
+      return this.executeRootSelectionSetImpl(serially);
+    }
+    return traceMixed(
+      executeRootSelectionSetChannel,
+      buildExecuteCtxFromValidatedArgs(this.validatedExecutionArgs),
+      () => this.executeRootSelectionSetImpl(serially),
+    );
+  }
+
+  executeRootSelectionSetImpl(
     serially?: boolean,
   ): PromiseOrValue<ExecutionResult | TAlternativeInitialResponse> {
     const externalAbortSignal = this.validatedExecutionArgs.externalAbortSignal;

@@ -39,6 +39,7 @@ import {
   executeChannel,
   shouldTrace,
   subscribeChannel,
+  subscribePerEventExecutorChannel,
   traceMixed,
 } from '../diagnostics.js';
 
@@ -618,21 +619,21 @@ function mapSourceToResponse(
     return resultOrStream;
   }
 
-  // For each payload yielded from a subscription, map it over the normal
-  // GraphQL `execute` function, with `payload` as the rootValue.
+  // For each payload yielded from a subscription, map it over the configured
+  // per-event executor, with `payload` as the rootValue.
   // This implements the "MapSourceToResponseEvent" algorithm described in
-  // the GraphQL specification..
+  // the GraphQL specification.
   function mapFn(payload: unknown): PromiseOrValue<ExecutionResult> {
     const perEventExecutionArgs: ValidatedSubscriptionArgs = {
       ...validatedExecutionArgs,
       rootValue: payload,
     };
-    if (!shouldTrace(executeChannel)) {
+    if (!shouldTrace(subscribePerEventExecutorChannel)) {
       return validatedExecutionArgs.perEventExecutor(perEventExecutionArgs);
     }
     return traceMixed(
-      executeChannel,
-      buildExecuteCtxFromValidatedArgs(validatedExecutionArgs),
+      subscribePerEventExecutorChannel,
+      buildExecuteCtxFromValidatedArgs(perEventExecutionArgs),
       () => validatedExecutionArgs.perEventExecutor(perEventExecutionArgs),
     );
   }
@@ -772,13 +773,13 @@ function assertEventStream(result: unknown): AsyncIterable<unknown> {
 }
 
 /**
- * Build a graphql:execute channel context from ValidatedExecutionArgs.
- * Used by executeSubscriptionEvent, where the operation has already been
- * resolved during argument validation. The original document is not
- * available at this point, only the resolved operation; subscribers that
- * need the document should read it from the graphql:subscribe context.
+ * Build an operation-scoped diagnostics context from ValidatedExecutionArgs.
+ * Used after the operation has already been resolved during argument
+ * validation. The original document is not available at this point, only the
+ * resolved operation; subscribers that need the document should read it from
+ * the graphql:execute or graphql:subscribe contexts.
  */
-function buildExecuteCtxFromValidatedArgs(
+export function buildExecuteCtxFromValidatedArgs(
   args: ValidatedExecutionArgs,
 ): object {
   let originalVariableValues: Maybe<{ readonly [variable: string]: unknown }>;
